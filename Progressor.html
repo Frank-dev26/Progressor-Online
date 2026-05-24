@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Progressor</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body { font-family: Arial; background:#0f2027; color:white; padding:20px; }
+button { padding:8px; margin:5px; border-radius:6px; border:none; cursor:pointer; }
+table { border-collapse: collapse; width:100%; margin-top:20px; }
+th, td { border:2px solid white; padding:6px; text-align:center; }
+input { width:70px; }
+#newSubject { padding:6px; margin-right:5px; }
+.page { display:none; }
+</style>
+</head>
+
+<body>
+
+<div style="position:absolute;right:10px;top:10px;">
+<button onclick="toggleMode()">☀/🌙</button>
+<button onclick="help()">?</button>
+</div>
+
+<h1>Progressor</h1>
+
+<input id="newSubject" placeholder="Nom matière">
+<button onclick="addSubject()">Ajouter matière</button>
+<button onclick="exportPDF()">Exporter PDF</button>
+<button onclick="clearAll()">Tout effacer</button>
+
+<div style="margin-top:20px;">
+  <label for="trimestre">Trimestre :</label>
+  <select id="trimestre" onchange="switchTrimestre()">
+    <option value="1">Trimestre 1</option>
+    <option value="2">Trimestre 2</option>
+    <option value="3">Trimestre 3</option>
+  </select>
+</div>
+
+<!-- Trois pages avec le tableau complet -->
+<div id="page1" class="page">
+  <h2>Trimestre 1</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Matière</th><th>Interro1</th><th>Interro2</th><th>Interro3</th><th>Interro4</th>
+        <th>Devoir1</th><th>Devoir2</th><th>Devoir3</th><th>Coef</th><th>Moyenne</th><th>Supprimer</th>
+      </tr>
+    </thead>
+    <tbody id="tbody1"></tbody>
+  </table>
+  <h2 id="general1">Moyenne générale : 0</h2>
+  <canvas id="graph1" height="120"></canvas>
+</div>
+
+<div id="page2" class="page">
+  <h2>Trimestre 2</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Matière</th><th>Interro1</th><th>Interro2</th><th>Interro3</th><th>Interro4</th>
+        <th>Devoir1</th><th>Devoir2</th><th>Devoir3</th><th>Coef</th><th>Moyenne</th><th>Supprimer</th>
+      </tr>
+    </thead>
+    <tbody id="tbody2"></tbody>
+  </table>
+  <h2 id="general2">Moyenne générale : 0</h2>
+  <canvas id="graph2" height="120"></canvas>
+</div>
+
+<div id="page3" class="page">
+  <h2>Trimestre 3</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Matière</th><th>Interro1</th><th>Interro2</th><th>Interro3</th><th>Interro4</th>
+        <th>Devoir1</th><th>Devoir2</th><th>Devoir3</th><th>Coef</th><th>Moyenne</th><th>Supprimer</th>
+      </tr>
+    </thead>
+    <tbody id="tbody3"></tbody>
+  </table>
+  <h2 id="general3">Moyenne générale : 0</h2>
+  <canvas id="graph3" height="120"></canvas>
+</div>
+
+<h2 id="progression">Progression globale</h2>
+<canvas id="progressionGraph" height="120"></canvas>
+
+<script>
+let subjectsT1 = JSON.parse(localStorage.getItem("progressorT1")) || [];
+let subjectsT2 = JSON.parse(localStorage.getItem("progressorT2")) || [];
+let subjectsT3 = JSON.parse(localStorage.getItem("progressorT3")) || [];
+let charts = {};
+
+function save(t){
+  if(t==1) localStorage.setItem("progressorT1", JSON.stringify(subjectsT1));
+  if(t==2) localStorage.setItem("progressorT2", JSON.stringify(subjectsT2));
+  if(t==3) localStorage.setItem("progressorT3", JSON.stringify(subjectsT3));
+}
+
+// Nouvelle logique de calcul
+function moyenneMatiere(s,t){
+  // Interros renseignées
+  let interros = [s.I1, s.I2, s.I3, s.I4].filter(x => x !== "" && !isNaN(x));
+  let moyInterro = 0;
+  if(interros.length > 0){
+    moyInterro = interros.reduce((a,b)=>a+Number(b),0) / interros.length;
+  }
+
+  // Devoirs renseignés
+  let devoirs = [s.D1, s.D2, s.D3].filter(x => x !== "" && !isNaN(x));
+  let sommeDevoirs = devoirs.reduce((a,b)=>a+Number(b),0);
+
+  // Nombre de blocs utilisés (moyenne interros + devoirs renseignés)
+  let nbBlocs = (interros.length > 0 ? 1 : 0) + devoirs.length;
+
+  // Calcul de la moyenne non coefficiée
+  let moyenneNonCoef = nbBlocs > 0 ? (moyInterro + sommeDevoirs) / nbBlocs : 0;
+
+  // Coefficient
+  let coef = Number(s.coef) || 1;
+  let moyenneCoef = moyenneNonCoef * coef;
+
+  return { nonCoef: moyenneNonCoef, coef: moyenneCoef };
+}
+
+
+function moyenneGenerale(t){
+  let arr=(t==1?subjectsT1:(t==2?subjectsT2:subjectsT3));
+  let somme=0, coefTotal=0;
+  arr.forEach(s=>{
+    if(s.coef){
+      let m = moyenneMatiere(s,t).coef;
+      somme += m;
+      coefTotal += Number(s.coef);
+    }
+  });
+  document.getElementById("general"+t).innerText="Moyenne générale : "+(coefTotal?(somme/coefTotal).toFixed(2):0);
+}
+
+function drawGraph(t){
+  let arr=(t==1?subjectsT1:(t==2?subjectsT2:subjectsT3));
+  let labels = arr.map(s=>s.name);
+  let data = arr.map(s=>moyenneMatiere(s,t).nonCoef);
+  let ctx=document.getElementById("graph"+t);
+  if(charts[t]) charts[t].destroy();
+  charts[t]=new Chart(ctx,{ type:'bar', data:{ labels:labels, datasets:[{ label:'Moyennes', data:data, backgroundColor:'steelblue'}]} });
+}
+
+function progressionGlobale(){
+  let moyennesTrimestres=[1,2,3].map(t=>{
+    let arr=(t==1?subjectsT1:(t==2?subjectsT2:subjectsT3));
+    let somme=0, coefTotal=0;
+    arr.forEach(s=>{
+      let m=moyenneMatiere(s,t).coef;
+      if(m>0){ somme+=m; coefTotal+=Number(s.coef)||0; }
+    });
+    return coefTotal?(somme/coefTotal).toFixed(2):0;
+  });
+  document.getElementById("progression").innerText="Progression globale : T1="+moyennesTrimestres[0]+" | T2="+moyennesTrimestres[1]+" | T3="+moyennesTrimestres[2];
+  let ctx=document.getElementById("progressionGraph");
+  if(charts['progress']) charts['progress'].destroy();
+  charts['progress']=new Chart(ctx,{ type:'bar', data:{ labels:["T1","T2","T3"], datasets:[{ label:'Moyenne générale', data:moyennesTrimestres, backgroundColor:'steelblue'}]} });
+}
+
+function renderTrimestre(t){
+  let arr=(t==1?subjectsT1:(t==2?subjectsT2:subjectsT3));
+  let tbody=document.getElementById("tbody"+t);
+  tbody.innerHTML="";
+  arr.forEach((s,i)=>{
+    let tr=document.createElement("tr");
+    tr.innerHTML=`
+      <td><input value="${s.name}" onchange="update(${i},'name',this.value,${t})"></td>
+      <td><input value="${s.I1}" onchange="update(${i},'I1',this.value,${t})"></td>
+            <td><input value="${s.I2}" onchange="update(${i},'I2',this.value,${t})"></td>
+      <td><input value="${s.I3}" onchange="update(${i},'I3',this.value,${t})"></td>
+      <td><input value="${s.I4}" onchange="update(${i},'I4',this.value,${t})"></td>
+      <td><input value="${s.D1}" onchange="update(${i},'D1',this.value,${t})"></td>
+      <td><input value="${s.D2}" onchange="update(${i},'D2',this.value,${t})"></td>
+      <td><input value="${s.D3}" onchange="update(${i},'D3',this.value,${t})"></td>
+      <td><input value="${s.coef}" onchange="update(${i},'coef',this.value,${t})"></td>
+      <td>${moyenneMatiere(s,t).nonCoef.toFixed(2)}</td>
+      <td><button onclick="deleteSubject(${i},${t})">🗑️</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+  moyenneGenerale(t);
+  drawGraph(t);
+  progressionGlobale();
+}
+
+function update(i,f,v,t){ 
+  let arr = (t==1?subjectsT1:(t==2?subjectsT2:subjectsT3));
+  arr[i][f]=v; 
+  save(t); 
+  renderTrimestre(t); 
+}
+
+function addSubject(){
+  let t=document.getElementById("trimestre").value;
+  let name=document.getElementById("newSubject").value.trim();
+  if(!name) return;
+  let arr=(t==1?subjectsT1:(t==2?subjectsT2:subjectsT3));
+  arr.push({ name,I1:"",I2:"",I3:"",I4:"", D1:"",D2:"",D3:"", coef:"" });
+  document.getElementById("newSubject").value="";
+  save(t);
+  renderTrimestre(t);
+}
+
+function deleteSubject(i,t){
+  let arr=(t==1?subjectsT1:(t==2?subjectsT2:subjectsT3));
+  arr.splice(i,1);
+  save(t);
+  renderTrimestre(t);
+}
+
+function clearAll(){
+  if(confirm("Voulez-vous vraiment tout effacer ?")){
+    subjectsT1=[]; subjectsT2=[]; subjectsT3=[];
+    localStorage.removeItem("progressorT1");
+    localStorage.removeItem("progressorT2");
+    localStorage.removeItem("progressorT3");
+    switchTrimestre();
+  }
+}
+
+function toggleMode(){
+  if(document.body.style.background==="white"){
+    document.body.style.background="#0f2027";
+    document.body.style.color="white";
+  }else{
+    document.body.style.background="white";
+    document.body.style.color="black";
+  }
+}
+
+function help(){
+  alert(
+    "Fonctionnalités Progressor :\n"+
+    "- I1-I4 = interrogations\n"+
+    "- D1-D3 = devoirs\n"+
+    "- Champ d'entrée pour ajouter une matière\n"+
+    "- Choisir un trimestre pour voir les moyennes\n"+
+    "- Progression globale = évolution sur 3 trimestres\n"+
+    "- Export PDF inclut les moyennes et progression\n"+
+    "- Bouton 🗑️ pour supprimer une matière\n"+
+    "- Bouton 'Tout effacer' pour réinitialiser"
+  );
+}
+
+function switchTrimestre(){
+  let t=document.getElementById("trimestre").value;
+  document.querySelectorAll(".page").forEach(p=>p.style.display="none");
+  document.getElementById("page"+t).style.display="block";
+  renderTrimestre(Number(t));
+}
+
+function exportPDF(){
+  const { jsPDF } = window.jspdf;
+  let doc=new jsPDF("landscape");
+
+  [1,2,3].forEach(t=>{
+    doc.setFontSize(14);
+    doc.text("Bulletin Progressor - Trimestre "+t,10,10);
+    let y=20;
+    let arr=(t==1?subjectsT1:(t==2?subjectsT2:subjectsT3));
+    arr.forEach(s=>{
+      doc.text(s.name+" : "+moyenneMatiere(s,t).nonCoef.toFixed(2),10,y);
+      y+=8;
+    });
+    let somme=0, coefTotal=0;
+    arr.forEach(s=>{
+      if(s.coef){ somme+=moyenneMatiere(s,t).coef; coefTotal+=Number(s.coef); }
+    });
+    let moyGen=coefTotal?(somme/coefTotal).toFixed(2):0;
+    y+=10;
+    doc.text("Moyenne générale du trimestre "+t+" : "+moyGen,10,y);
+    if(t<3) doc.addPage("landscape");
+  });
+
+  doc.save("bulletin.pdf");
+}
+
+// Initialisation
+switchTrimestre();
+</script>
+
+</body>
+</html>
